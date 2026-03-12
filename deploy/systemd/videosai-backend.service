@@ -1,0 +1,18 @@
+[Unit]
+Description=Videos AI Backend (FastAPI/Uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/videosai/backend
+EnvironmentFile=/opt/videosai/backend/.env
+ExecStart=/opt/videosai/backend/venv/bin/uvicorn server:app --host 127.0.0.1 --port 8001
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

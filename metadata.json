@@ -1,0 +1,5 @@
+{
+  "name": "StoryWeaver AI (Arabic)",
+  "description": "A mobile-first Arabic application to generate animated videos from storyboards using Gemini, Nano Banana 3 Pro, and Veo3.",
+  "requestFramePermissions": []
+}

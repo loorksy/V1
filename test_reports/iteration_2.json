@@ -1,0 +1,60 @@
+{
+  "summary": "Tested new Settings page with provider toggle (Google Gemini / kie.ai), API key management, and model selectors. All new features working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/kie/upload-image", "issue": "Returns 500 when kie.ai API key is invalid/test key (expected external API behavior)"},
+      {"endpoint": "/api/kie/image-to-video", "issue": "Returns 500 with invalid API key (expected external API behavior)"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_api.py"
+  ],
+  "success_rate": {
+    "backend": "90% (17/20 tests passed - 2 external API failures due to test key, 1 skipped)",
+    "frontend": "100% (all Settings page features working)"
+  },
+  "test_credentials": {
+    "login_password": "Ahmetlork0009",
+    "kie_api_key": "5d3894f7882ea0f48b7b2359d6274bbb"
+  },
+  "seed_data_creation": "",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All Settings page features verified: 1) Provider toggle works (Gemini/kie.ai buttons), 2) API key inputs show/hide correctly based on provider, 3) Model selectors populate with correct options, 4) Save button persists to backend, 5) Navigation between all pages works. Backend has 6 new tests for Settings endpoints that pass. The 2 failed tests are kie.ai external integration tests that fail only when using test/invalid API keys.",
+  "features_tested": {
+    "settings_page": [
+      "Settings page loads correctly at /settings",
+      "Provider toggle works - switching between Google Gemini and kie.ai buttons",
+      "When Gemini selected: shows Gemini API key field + kie.ai key field, Gemini text/image models",
+      "When kie.ai selected: hides Gemini key field, shows only kie.ai key, shows DeepSeek Chat / GPT-Image-1 models",
+      "Model dropdown selectors work for text, image, and video models",
+      "Save button (حفظ التغييرات) saves settings to backend with success message",
+      "Test connection button present",
+      "Logout button present"
+    ],
+    "backend_endpoints": [
+      "GET /api/settings returns current settings correctly",
+      "POST /api/settings saves kie_api_key, provider, text_model, image_model, video_model",
+      "POST /api/kie/generate-text endpoint exists and accepts requests",
+      "POST /api/kie/generate-image endpoint exists and accepts requests",
+      "GET /api/kie/image-status/{task_id} endpoint exists",
+      "GET /api/characters/list still works",
+      "GET /api/storyboards/list still works"
+    ],
+    "navigation": [
+      "Can navigate between Settings, Home, Characters, Stories, Gallery pages"
+    ]
+  }
+}

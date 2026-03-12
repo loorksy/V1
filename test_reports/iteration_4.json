@@ -1,0 +1,89 @@
+{
+  "summary": "Verified kie.ai integration: Settings test-connection shows credits (49.96), Motion Control page fully functional with all 5 sections, provider toggle works correctly. Fixed 2 bugs: kling-status null data handling and upload-file endpoint path.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/kie/kling-motion (1080p)", "issue": "Returns 'Credits insufficient' when using 1080p mode - expected behavior due to low credits balance", "priority": "LOW"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/stories route", "issues": ["Console warning: No routes matched location '/stories' - may need to check router config"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_kie_endpoints.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Settings test-connection correctly calls kie.ai credit endpoint and displays balance",
+    "Motion Control page properly integrated with kie.ai backend endpoints",
+    "Upload-file endpoint now uses correct kie.ai file-stream-upload URL"
+  ],
+  "updated_files": [
+    "/app/backend/server.py (lines 841-844: fixed null data handling in kling-status, lines 864-893: fixed upload-file endpoint)"
+  ],
+  "success_rate": {
+    "backend": "93% (13/14 tests passed - 1 expected failure due to credits)",
+    "frontend": "100% (all pages load correctly, all interactions work)"
+  },
+  "test_credentials": {
+    "login_password": "Ahmetlork0009",
+    "kie_api_key": "5d3894f7882ea0f48b7b2359d6274bbb"
+  },
+  "seed_data_creation": "",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "kie.ai integration fully working. Settings page shows credits balance on test. Motion Control page uses Kling 2.6 via kie.ai. All backend endpoints verified: test-connection, kling-motion, kling-status, upload-file, generate-text. Account has ~49.96 credits remaining.",
+  "features_tested": {
+    "settings_page": [
+      "Provider toggle (Google Gemini / kie.ai) - PASS",
+      "When kie.ai selected: shows Gemini 2.5 Flash, GPT-Image-1, Veo 3 Fast models - PASS",
+      "Test connection shows success with 49.96 credits balance - PASS",
+      "Save settings persists to backend - PASS"
+    ],
+    "motion_control_page": [
+      "Page loads with all 5 sections - PASS",
+      "Character thumbnails from library shown (3 characters) - PASS",
+      "Upload/URL toggle for image and video inputs - PASS",
+      "Orientation selector (full body / portrait) - PASS",
+      "Quality selector (Standard 720p / Professional 1080p) - PASS",
+      "Generate button disabled until required inputs provided - PASS"
+    ],
+    "backend_endpoints": [
+      "POST /api/kie/test-connection - PASS (returns credits: 49.96)",
+      "POST /api/kie/kling-motion - PASS (returns taskId)",
+      "GET /api/kie/kling-status/{task_id} - PASS (fixed null handling)",
+      "POST /api/kie/upload-file - PASS (fixed endpoint URL)",
+      "POST /api/kie/generate-text (gemini-2.5-flash) - PASS",
+      "GET /api/settings - PASS",
+      "POST /api/settings - PASS"
+    ],
+    "vite_proxy": [
+      "Requests to port 3000/api/* proxy to port 8001 - PASS"
+    ],
+    "other_pages": [
+      "Home page loads - PASS",
+      "Characters page loads - PASS",
+      "Gallery page loads - PASS",
+      "Stories page - WARNING (route not matched but page loads)"
+    ]
+  },
+  "bugs_fixed_by_testing_agent": [
+    {
+      "file": "/app/backend/server.py",
+      "line": "841-844",
+      "issue": "kling-status endpoint crashed when kie.ai API returned null data",
+      "fix": "Changed 'data = result.get(\"data\", {})' to 'data = result.get(\"data\") or {}'"
+    },
+    {
+      "file": "/app/backend/server.py", 
+      "line": "864-893",
+      "issue": "upload-file endpoint used wrong kie.ai API path (/files/upload returned 404)",
+      "fix": "Changed to use correct file-stream-upload endpoint at kieai.redpandaai.co"
+    }
+  ]
+}
