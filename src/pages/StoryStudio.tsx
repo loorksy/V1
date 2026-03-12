@@ -522,9 +522,8 @@ ${continuityLine}`;
       } else {
         let firstSceneImage: string | undefined = next.scenes[0]?.frameImage;
         let finished = 0;
-        const concurrency = Math.min(3, missingIndexes.length);
 
-        if (!firstSceneImage) {
+        if (!firstSceneImage && missingIndexes.includes(0)) {
           setStatus(`توليد المشهد المرجعي 1/${total}...`);
           const refs0 = await getCharacterRefsForSceneFromChars(next.scenes[0].characterIds, liveChars);
           firstSceneImage = await AIService.generateStoryboardFrame({
@@ -546,42 +545,36 @@ ${continuityLine}`;
           });
           next.scenes[0].frameImage = firstSceneImage;
           finished += 1;
-          const anchorPos = missingIndexes.indexOf(0);
-          if (anchorPos >= 0) missingIndexes.splice(anchorPos, 1);
           setStudioStoryboard({ ...next, scenes: [...next.scenes] });
         }
 
-        await Promise.all(
-          Array.from({ length: concurrency }, async () => {
-            while (missingIndexes.length) {
-              const i = missingIndexes.shift();
-              if (i === undefined) return;
-              setStatus(`توليد المشاهد دفعة واحدة... ${finished}/${total}`);
-              const scene = next.scenes[i];
-              const refs = await getCharacterRefsForSceneFromChars(scene.characterIds, liveChars);
-              const image = await AIService.generateStoryboardFrame({
-                sceneDescription: buildScenePrompt({
-                  scene,
-                  idx: i,
-                  total,
-                  storyScript: next.script || '',
-                  previousSceneDescription: i > 0 ? next.scenes[i - 1]?.description : undefined,
-                }),
-                characterImages: refs,
-                firstSceneImage,
-                previousSceneImage: next.scenes[i - 1]?.frameImage,
-                sceneIndex: i,
-                totalScenes: total,
-                style: 'Cinematic',
-                aspectRatio: (next.aspectRatio || '16:9') as '16:9' | '9:16',
-                characterDNA,
-              });
-              next.scenes[i].frameImage = image;
-              finished += 1;
-              setStudioStoryboard({ ...next, scenes: [...next.scenes] });
-            }
-          })
-        );
+        // Sequential generation: one request per scene to avoid duplicate API calls and race conditions
+        for (const i of missingIndexes) {
+          if (i === 0 && next.scenes[0]?.frameImage) continue;
+          setStatus(`توليد المشاهد... ${finished + 1}/${total}`);
+          const scene = next.scenes[i];
+          const refs = await getCharacterRefsForSceneFromChars(scene.characterIds, liveChars);
+          const image = await AIService.generateStoryboardFrame({
+            sceneDescription: buildScenePrompt({
+              scene,
+              idx: i,
+              total,
+              storyScript: next.script || '',
+              previousSceneDescription: i > 0 ? next.scenes[i - 1]?.description : undefined,
+            }),
+            characterImages: refs,
+            firstSceneImage,
+            previousSceneImage: next.scenes[i - 1]?.frameImage,
+            sceneIndex: i,
+            totalScenes: total,
+            style: 'Cinematic',
+            aspectRatio: (next.aspectRatio || '16:9') as '16:9' | '9:16',
+            characterDNA,
+          });
+          next.scenes[i].frameImage = image;
+          finished += 1;
+          setStudioStoryboard({ ...next, scenes: [...next.scenes] });
+        }
       }
 
       setStudioStoryboard(next);

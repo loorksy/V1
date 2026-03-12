@@ -554,6 +554,25 @@ CTA: ${params.ctaText || 'تواصل الآن'}
     return isFalProvider() ? falGenerateText(prompt) : kieGenerateText(prompt);
   },
 
+  /** Short Video Studio: improve idea for short creative video only (not product/ad). */
+  async improveShortVideoIdea(params: {
+    productName?: string;
+    category?: string;
+    keyFeatures: string;
+    brandTone?: string;
+    visualStyle?: string;
+  }): Promise<string> {
+    requireApiKey();
+    const prompt = `أنت خبير في فيديوهات قصيرة إبداعية (شورتات).
+المطلوب: حسّن فكرة الفيديو التالية لتكون مناسبة لفيديو قصير إبداعي (ليس إعلاناً تجارياً).
+الفكرة أو الوصف الحالي: ${params.keyFeatures}
+${params.productName ? `السياق/الشخصية: ${params.productName}` : ''}
+${params.visualStyle ? `الأسلوب: ${params.visualStyle}` : ''}
+
+أخرج فكرة واحدة فقط: وصف بصري قصير ومختصر لتنفيذ الفيديو، بدون تحويلها إلى إعلان أو CTA أو عروض تجارية.`;
+    return isFalProvider() ? falGenerateText(prompt) : kieGenerateText(prompt);
+  },
+
   async generateAdCampaign(params: any): Promise<any> {
     requireApiKey();
     if (!isKieProvider() && !isFalProvider()) {

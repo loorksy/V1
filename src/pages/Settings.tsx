@@ -12,6 +12,19 @@ interface FalModelOption {
   label: string;
 }
 
+// Simple in-memory cache so model lists are not re-fetched on every Settings remount.
+// This avoids repeated /api/fal/models calls when navigating around the app.
+const MODEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+let cachedTextModels: FalModelOption[] | null = null;
+let cachedTextModelsTs = 0;
+
+let cachedImageModels: FalModelOption[] | null = null;
+let cachedImageModelsTs = 0;
+
+let cachedVideoModels: FalModelOption[] | null = null;
+let cachedVideoModelsTs = 0;
+
 interface DiagnosticStep {
   label: string;
   status: 'success' | 'error';
@@ -41,6 +54,11 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
   const [diagnosticSteps, setDiagnosticSteps] = useState<DiagnosticStep[]>([]);
 
   const refreshModelLists = async (canUseFalApi: boolean) => {
+    // Invalidate caches when explicitly refreshing (after Save/Test actions)
+    cachedTextModels = null;
+    cachedImageModels = null;
+    cachedVideoModels = null;
+    cachedTextModelsTs = cachedImageModelsTs = cachedVideoModelsTs = 0;
     await Promise.all([loadTextModels(), loadImageModels(canUseFalApi), loadVideoModels(canUseFalApi)]);
   };
 
@@ -74,12 +92,13 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
         const key = (storedFal || '').trim();
         const localKeyValid = key ? validateFalKeyClient(key) === null : false;
         const canUseFalApi = Boolean(localKeyValid || data.has_fal_key);
-        void refreshModelLists(canUseFalApi);
+        // Load model lists without invalidating cache (so returning to Settings does not refetch)
+        void Promise.all([loadTextModels(), loadImageModels(canUseFalApi), loadVideoModels(canUseFalApi)]);
       } catch {
         setErrorMessage('تعذر تحميل إعدادات الخادم (endpoint: settings).');
         const key = (storedFal || '').trim();
         const localKeyValid = key ? validateFalKeyClient(key) === null : false;
-        void refreshModelLists(localKeyValid);
+        void Promise.all([loadTextModels(), loadImageModels(localKeyValid), loadVideoModels(localKeyValid)]);
       }
     };
 
@@ -189,6 +208,16 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
     setTextModelsLoading(true);
     setTextModelsError('');
     try {
+      // Use cache if still fresh
+      if (cachedTextModels && Date.now() - cachedTextModelsTs < MODEL_CACHE_TTL) {
+        setFalTextModels(cachedTextModels);
+        if (cachedTextModels.length > 0) {
+          setTextModel((prev) => (cachedTextModels.some((m: FalModelOption) => m.id === prev) ? prev : cachedTextModels[0].id));
+        }
+        setTextModelsLoading(false);
+        return;
+      }
+
       const resp = await fetchWithTimeout(`${API}/api/fal/models?type=text`, { method: 'GET' }, 12000);
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -196,10 +225,12 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
         setFalTextModels([]);
         return;
       }
-      const models = Array.isArray(data.models) ? data.models : [];
+      const models = Array.isArray(data.models) ? (data.models as FalModelOption[]) : [];
+      cachedTextModels = models;
+      cachedTextModelsTs = Date.now();
       setFalTextModels(models);
       if (models.length > 0) {
-        setTextModel((prev) => (models.some((m: FalModelOption) => m.id === prev) ? prev : models[0].id));
+        setTextModel((prev) => (models.some((m) => m.id === prev) ? prev : models[0].id));
       }
       if (data.error) setTextModelsError(String(data.error));
     } catch {
@@ -220,6 +251,16 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
       return;
     }
     try {
+      // Use cache if still fresh
+      if (cachedImageModels && Date.now() - cachedImageModelsTs < MODEL_CACHE_TTL) {
+        setFalImageModels(cachedImageModels);
+        if (cachedImageModels.length > 0) {
+          setImageModel((prev) => (cachedImageModels.some((m) => m.id === prev) ? prev : cachedImageModels[0].id));
+        }
+        setImageModelsLoading(false);
+        return;
+      }
+
       const resp = await fetchWithTimeout(`${API}/api/fal/models?type=image`, { method: 'GET' }, 15000);
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -227,10 +268,12 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
         setFalImageModels([]);
         return;
       }
-      const models = Array.isArray(data.models) ? data.models : [];
+      const models = Array.isArray(data.models) ? (data.models as FalModelOption[]) : [];
+      cachedImageModels = models;
+      cachedImageModelsTs = Date.now();
       setFalImageModels(models);
       if (models.length > 0) {
-        setImageModel((prev) => (models.some((m: FalModelOption) => m.id === prev) ? prev : models[0].id));
+        setImageModel((prev) => (models.some((m) => m.id === prev) ? prev : models[0].id));
       }
       if (data.error) setImageModelsError(String(data.error));
     } catch {
@@ -251,6 +294,16 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
       return;
     }
     try {
+      // Use cache if still fresh
+      if (cachedVideoModels && Date.now() - cachedVideoModelsTs < MODEL_CACHE_TTL) {
+        setFalVideoModels(cachedVideoModels);
+        if (cachedVideoModels.length > 0) {
+          setVideoModel((prev) => (cachedVideoModels.some((m) => m.id === prev) ? prev : cachedVideoModels[0].id));
+        }
+        setVideoModelsLoading(false);
+        return;
+      }
+
       const resp = await fetchWithTimeout(`${API}/api/fal/models?type=video`, { method: 'GET' }, 15000);
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -258,10 +311,12 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
         setFalVideoModels([]);
         return;
       }
-      const models = Array.isArray(data.models) ? data.models : [];
+      const models = Array.isArray(data.models) ? (data.models as FalModelOption[]) : [];
+      cachedVideoModels = models;
+      cachedVideoModelsTs = Date.now();
       setFalVideoModels(models);
       if (models.length > 0) {
-        setVideoModel((prev) => (models.some((m: FalModelOption) => m.id === prev) ? prev : models[0].id));
+        setVideoModel((prev) => (models.some((m) => m.id === prev) ? prev : models[0].id));
       }
       if (data.error) setVideoModelsError(String(data.error));
     } catch {

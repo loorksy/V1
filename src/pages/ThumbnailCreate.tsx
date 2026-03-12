@@ -190,8 +190,9 @@ export default function ThumbnailCreate() {
       try {
         const analysis = await AIService.analyzeThumbnail(base64);
         setThumbnailAnalysis(analysis);
-      } catch (err) {
-        console.error(err);
+      } catch (err: any) {
+        console.error('Thumbnail analysis failed:', err);
+        alert(err?.message ? `فشل تحليل الصورة المصغرة: ${err.message}` : 'تعذر تحليل الصورة المصغرة. تأكد من اتصال الخادم ومفتاح fal.ai ثم أعد المحاولة.');
       } finally {
         setAnalysisLoading(false);
       }
@@ -510,6 +511,30 @@ export default function ThumbnailCreate() {
                         <Sparkles className="w-4 h-4 text-indigo-500" />
                         تحليل الذكاء الاصطناعي
                       </h4>
+                      {!thumbnailAnalysis && !analysisLoading && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!baseThumbnail) return;
+                            setAnalysisLoading(true);
+                            setThumbnailAnalysis(null);
+                            try {
+                              const analysis = await AIService.analyzeThumbnail(baseThumbnail);
+                              setThumbnailAnalysis(analysis);
+                            } catch (err: any) {
+                              console.error('Thumbnail analysis failed:', err);
+                              alert(err?.message ? `فشل تحليل الصورة المصغرة: ${err.message}` : 'تعذر تحليل الصورة. تأكد من اتصال الخادم ومفتاح fal.ai ثم أعد المحاولة.');
+                            } finally {
+                              setAnalysisLoading(false);
+                            }
+                          }}
+                          disabled={analysisLoading}
+                          className="w-full py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-xs hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2 mb-3"
+                        >
+                          {analysisLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                          تحليل الصورة (Image Analysis)
+                        </button>
+                      )}
                       {analysisLoading ? (
                         <div className="flex items-center gap-3 text-slate-500 text-xs p-2">
                           <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
@@ -823,11 +848,15 @@ export default function ThumbnailCreate() {
 
           <button
             onClick={startGeneration}
-            disabled={mode === 'from_story' && (!selectedStoryId || isAnalyzingStory || !storyMetadata)}
+            disabled={
+              isProcessing ||
+              (mode === 'from_story' && (!selectedStoryId || isAnalyzingStory || !storyMetadata)) ||
+              (mode === 'enhance' && !baseThumbnail)
+            }
             className="w-full py-4 bg-red-600 text-white rounded-xl font-bold shadow-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-8"
           >
-            {mode === 'enhance' ? <Wand2 className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
-            <span>{mode === 'from_story' ? 'توليد صورة مصغرة للقصة' : mode === 'enhance' ? 'تحسين الصورة المصغرة' : 'توليد الصورة المصغرة'}</span>
+            {isProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : mode === 'enhance' ? <Wand2 className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
+            <span>{mode === 'from_story' ? 'توليد صورة مصغرة للقصة' : mode === 'enhance' ? 'تحسين الصورة المصغرة (Image Enhancement)' : 'توليد من الصفر (Generate from Scratch)'}</span>
           </button>
         </div>
       )}

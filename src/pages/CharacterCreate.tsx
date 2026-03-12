@@ -130,6 +130,11 @@ export default function CharacterCreate() {
   };
 
   const saveCharacter = async () => {
+    if (!name || !generatedImages.front) {
+      alert('الرجاء توليد الشخصية واختيار اسم قبل الحفظ.');
+      return;
+    }
+
     const character: Character = {
       id: uuidv4(),
       name,
@@ -139,8 +144,16 @@ export default function CharacterCreate() {
       createdAt: Date.now()
     };
     
-    await db.saveCharacter(character);
-    navigate('/characters');
+    setIsProcessing(true);
+    try {
+      await db.saveCharacter(character);
+      navigate('/characters');
+    } catch (error: any) {
+      console.error('Failed to save character:', error);
+      alert(error?.message ? `فشل حفظ الشخصية: ${error.message}` : 'فشل حفظ الشخصية. تأكد من اتصال الخادم ثم أعد المحاولة.');
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -367,7 +380,8 @@ export default function CharacterCreate() {
 
           <button
             onClick={saveCharacter}
-            className="w-full py-3.5 bg-emerald-600 text-white rounded-xl font-bold shadow-md hover:bg-emerald-700 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+            disabled={isProcessing}
+            className="w-full py-3.5 bg-emerald-600 text-white rounded-xl font-bold shadow-md hover:bg-emerald-700 flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Check className="w-5 h-5" />
             <span>حفظ الشخصية</span>

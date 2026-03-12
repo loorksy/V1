@@ -262,14 +262,6 @@ def normalize_aspect_ratio(value: str, default_value: str = "16:9") -> str:
     return default_value
 
 
-def normalize_aspect_ratio(value: str, default_value: str = "16:9") -> str:
-    """Normalize aspect ratio to fal-accepted literal format: 16:9 or 9:16."""
-    raw = (value or "").strip().replace("/", ":")
-    if raw in ("16:9", "9:16"):
-        return raw
-    return default_value
-
-
 async def upload_bytes_to_fal_storage(file_bytes: bytes, filename: str, content_type: str, api_key: str) -> str:
     """Upload bytes to fal storage and return CDN URL.
     Uses official fal_client to avoid deprecated/invalid REST upload hosts.
@@ -378,16 +370,18 @@ class CharacterSaveRequest(BaseModel):
 
 @app.post("/api/characters/save")
 async def save_character(req: CharacterSaveRequest):
+    if not MONGO_AVAILABLE:
+        raise HTTPException(status_code=503, detail="قاعدة البيانات غير متاحة. تأكد من تشغيل MongoDB وحفظ الشخصيات.")
     char_id = req.id or uuid.uuid4().hex
 
-    # Upload images and convert base64 to URLs
+    # Upload images and convert base64 to URLs (store under images/ subdir)
     image_urls = {}
     for key, val in req.images.items():
         if val and len(val) > 200:
             if val.startswith("http"):
                 image_urls[key] = val
             else:
-                image_urls[key] = save_base64_file(val)
+                image_urls[key] = save_base64_file(val, ext="jpg", subdir="images")
 
     doc = {
         "id": char_id,
@@ -1590,9 +1584,19 @@ async def fal_task_status(task_id: str):
             if isinstance(log, dict) and log.get("message", "").startswith("http"):
                 video_url = log.get("message", "").strip()
                 break
-        response = data.get("response") or data.get("result") or {}
+        response = data.get("response") or data.get("result") or data.get("output") or {}
         if isinstance(response, dict):
-            video_url = response.get("video", {}).get("url") if isinstance(response.get("video"), dict) else response.get("video_url", video_url)
+            vid = response.get("video")
+            if isinstance(vid, dict) and vid.get("url"):
+                video_url = vid.get("url") or video_url
+            elif response.get("video_url"):
+                video_url = response.get("video_url") or video_url
+            if not video_url and response.get("output"):
+                out = response.get("output")
+                if isinstance(out, dict):
+                    video_url = out.get("video", {}).get("url") if isinstance(out.get("video"), dict) else out.get("video_url", video_url)
+                elif isinstance(out, str) and out.startswith("http"):
+                    video_url = out
         elif isinstance(response, list) and response:
             video_url = response[0].get("url", video_url) if isinstance(response[0], dict) else video_url
         return {"status": "completed", "videoUrl": video_url}
@@ -1628,8 +1632,14 @@ async def fal_batch_task_status(req: FalBatchTaskRequest):
             d = r.json()
             st = d.get("status", "processing")
             if st == "COMPLETED":
-                resp = d.get("response") or d.get("result") or {}
-                vurl = resp.get("video", {}).get("url") if isinstance(resp.get("video"), dict) else resp.get("video_url", "") if isinstance(resp, dict) else ""
+                resp = d.get("response") or d.get("result") or d.get("output") or {}
+                vurl = ""
+                if isinstance(resp, dict):
+                    vid = resp.get("video")
+                    vurl = vid.get("url", "") if isinstance(vid, dict) else resp.get("video_url", "")
+                    if not vurl and resp.get("output"):
+                        out = resp.get("output")
+                        vurl = (out.get("video") or {}).get("url") if isinstance(out, dict) else (out if isinstance(out, str) and out.startswith("http") else "")
                 results[tid] = {"status": "completed", "videoUrl": vurl or ""}
             elif st == "FAILED":
                 results[tid] = {"status": "failed", "videoUrl": ""}
@@ -1666,11 +1676,11 @@ class FalKlingMotionRequest(BaseModel):
 
 @app.post("/api/fal/kling-motion")
 async def fal_kling_motion(req: FalKlingMotionRequest):
-    """Kling motion control via fal."""
+    """Kling motion control via fal. Correct path: v2.6/standard/motion-control (not motion-control/standard)."""
     headers = _fal_headers()
-    endpoint = "fal-ai/kling-video/v2.6/motion-control/standard"
+    endpoint = "fal-ai/kling-video/v2.6/standard/motion-control"
     if req.mode == "1080p":
-        endpoint = "fal-ai/kling-video/v2.6/motion-control/pro"
+        endpoint = "fal-ai/kling-video/v2.6/pro/motion-control"
     payload = {
         "prompt": req.prompt,
         "image_url": req.image_url,

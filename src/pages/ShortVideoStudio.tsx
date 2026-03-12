@@ -141,8 +141,8 @@ export default function ShortVideoStudio() {
     if (!prompt.trim()) return;
     setIsImprovingIdea(true);
     try {
-      const improved = await AIService.improveProductVideoIdea({
-        productName: selectedCharacter?.name || 'شخصية',
+      const improved = await AIService.improveShortVideoIdea({
+        productName: selectedCharacter?.name,
         category: 'فيديو قصير',
         keyFeatures: prompt.trim(),
         brandTone: 'احترافي',
