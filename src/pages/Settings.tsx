@@ -62,12 +62,14 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
     await Promise.all([loadTextModels(), loadImageModels(canUseFalApi), loadVideoModels(canUseFalApi)]);
   };
 
+  const [geminiKey, setGeminiKey] = useState('');
+
   useEffect(() => {
-    // Ensure old provider/key state never forces non-fal mode.
-    localStorage.removeItem('GEMINI_API_KEY');
     localStorage.setItem('AI_PROVIDER', 'fal');
     const storedFal = localStorage.getItem('FAL_API_KEY');
     if (storedFal) setFalKey(storedFal);
+    const storedGemini = localStorage.getItem('GEMINI_API_KEY');
+    if (storedGemini) setGeminiKey(storedGemini);
 
     const loadInitialSettings = async () => {
       try {
@@ -120,6 +122,11 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
       localStorage.setItem('FAL_API_KEY', falKey.trim());
     } else {
       localStorage.removeItem('FAL_API_KEY');
+    }
+    if (geminiKey.trim()) {
+      localStorage.setItem('GEMINI_API_KEY', geminiKey.trim());
+    } else {
+      localStorage.removeItem('GEMINI_API_KEY');
     }
 
     try {
@@ -514,6 +521,24 @@ export default function SettingsPage({ onLogout }: SettingsPageProps) {
             <a href="https://fal.ai/dashboard/keys" target="_blank" rel="noreferrer" className="text-primary hover:underline">
               احصل على مفتاحك من fal.ai
             </a>
+          </p>
+        </div>
+
+        {/* Gemini API Key (optional - for better image quality in thumbnails & ads) */}
+        <div>
+          <label className="block text-xs font-bold text-card-foreground mb-1.5">
+            مفتاح Gemini API <span className="text-muted-foreground font-normal">(اختياري - لتحسين جودة الصور)</span>
+          </label>
+          <input
+            data-testid="gemini-api-key-input"
+            type="password"
+            value={geminiKey}
+            onChange={(e) => setGeminiKey(e.target.value)}
+            placeholder="Gemini API Key..."
+            className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-ring/30 focus:border-primary outline-none font-mono text-sm bg-secondary/50"
+          />
+          <p className="text-[10px] text-muted-foreground mt-1">
+            عند إضافته تُستخدم صور Gemini في المصغرات وصور الإعلانات لتحسين الجودة. الفيديو والنصوص تبقى عبر fal.ai.
           </p>
         </div>
 

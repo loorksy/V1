@@ -31,6 +31,17 @@ function hasFalKeyConfigured(): boolean {
   return localStorage.getItem(FAL_KEY_AVAILABLE_FLAG) === '1';
 }
 
+/** وجود مفتاح Gemini (اختياري) لاستخدامه في توليد الصور لتحسين الجودة */
+export function hasGeminiKey(): boolean {
+  const key = (localStorage.getItem('GEMINI_API_KEY') || '').trim();
+  return key.length > 0 && key !== 'MY_GEMINI_API_KEY';
+}
+
+/** استخدام Gemini لتوليد الصور (المصغرات، الإعلانات) عند توفر المفتاح */
+export function useGeminiForImages(): boolean {
+  return hasGeminiKey();
+}
+
 export class MissingApiKeyError extends Error {
   provider: Provider;
   constructor(provider: Provider) {

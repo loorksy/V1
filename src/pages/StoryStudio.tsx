@@ -95,6 +95,8 @@ const CONTENT_TYPES = [
 const STYLE_OPTIONS = ['Cinematic', 'Anime', '3D Render', 'Cyberpunk', 'Documentary', 'Dynamic Social'];
 const DIALOGUE_LANGUAGES = ['العربية', 'الإنجليزية', 'الفرنسية', 'الإسبانية', 'التركية'];
 
+const STORAGE_DRAFT_KEY = 'storystudio_draft';
+
 export default function StoryStudio() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<StudioTab>('projects');
@@ -126,6 +128,7 @@ export default function StoryStudio() {
   const [videoStatuses, setVideoStatuses] = useState<Record<number, string>>({});
   const [mergedVideoUrl, setMergedVideoUrl] = useState('');
   const [missingKeyError, setMissingKeyError] = useState<MissingApiKeyError | null>(null);
+  const [hasDraft, setHasDraft] = useState(false);
 
   const selectedChars = useMemo(
     () => characters.filter((c) => selectedCharIds.includes(c.id)),
@@ -147,7 +150,36 @@ export default function StoryStudio() {
 
   useEffect(() => {
     void loadInitialData();
+    try {
+      const raw = sessionStorage.getItem(STORAGE_DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        setHasDraft(draft && (draft.scenes?.length > 0 || draft.script));
+      }
+    } catch {
+      setHasDraft(false);
+    }
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'create') return;
+    if (scenes.length > 0 || script) {
+      const draft = {
+        selectedCharIds,
+        idea,
+        script,
+        scenes,
+        style,
+        aspectRatio,
+        contentType,
+        customContentType,
+        sceneCount,
+        dialogueLanguage,
+      };
+      sessionStorage.setItem(STORAGE_DRAFT_KEY, JSON.stringify(draft));
+      setHasDraft(true);
+    }
+  }, [activeTab, selectedCharIds, idea, script, scenes, style, aspectRatio, contentType, customContentType, sceneCount, dialogueLanguage]);
 
   useEffect(() => {
     if (!selectedStoryboardId) {
@@ -169,6 +201,38 @@ export default function StoryStudio() {
     setStudioStoryboard(story);
     setActiveTab('studio');
     setSearchParams({ tab: 'studio', storyId: story.id });
+  };
+
+  const resumeDraft = () => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft.selectedCharIds) setSelectedCharIds(draft.selectedCharIds);
+      if (draft.idea != null) setIdea(draft.idea);
+      if (draft.script != null) setScript(draft.script);
+      if (draft.scenes?.length) setScenes(draft.scenes);
+      if (draft.style) setStyle(draft.style);
+      if (draft.aspectRatio) setAspectRatio(draft.aspectRatio);
+      if (draft.contentType) setContentType(draft.contentType);
+      if (draft.customContentType != null) setCustomContentType(draft.customContentType);
+      if (draft.sceneCount != null) setSceneCount(draft.sceneCount);
+      if (draft.dialogueLanguage) setDialogueLanguage(draft.dialogueLanguage);
+      setActiveTab('create');
+      setSearchParams({ tab: 'create' });
+      setHasDraft(true);
+    } catch {
+      setHasDraft(false);
+    }
+  };
+
+  const startNewDraft = () => {
+    sessionStorage.removeItem(STORAGE_DRAFT_KEY);
+    setHasDraft(false);
+    setIdea('');
+    setScript('');
+    setScenes([]);
+    setStatus('');
   };
 
   const applyPreset = (presetId: string) => {
@@ -330,6 +394,7 @@ ${continuityLine}`;
     }
   };
 
+  /** توليد صور المشاهد تسلسلياً (مرجعي: طلب واحد لكل مشهد، تأخير 3ث بين المشاهد، إعادة محاولة مرة عند الفشل) */
   const generateFramesForScenes = async () => {
     if (!scenes.length) return;
     setIsGeneratingFrames(true);
@@ -338,65 +403,66 @@ ${continuityLine}`;
       const characterDNA = buildCharacterDNA(selectedChars, profiles);
       const updated = [...scenes];
       const total = updated.length;
-      const concurrency = Math.min(3, Math.max(1, total - 1));
-      let finished = 0;
+      let firstSceneImage: string | undefined = updated[0]?.frameImage;
+      let previousSceneImage: string | undefined;
 
-      // Generate scene 1 first as canonical anchor for consistency.
-      setStatus(`جاري توليد المشهد المرجعي 1/${total}...`);
-      const firstRefs = await getCharacterRefsForScene(updated[0].characterIds);
-      const firstImage = await AIService.generateStoryboardFrame({
-        sceneDescription: buildScenePrompt({
-          scene: updated[0],
-          idx: 0,
-          total,
-          storyScript: script,
-          previousSceneDescription: undefined,
-        }),
-        characterImages: firstRefs,
-        firstSceneImage: updated[0].frameImage,
-        previousSceneImage: undefined,
-        sceneIndex: 0,
-        totalScenes: total,
-        style,
-        aspectRatio,
-        characterDNA,
-      });
-      updated[0].frameImage = firstImage;
-      finished = 1;
-      setScenes([...updated]);
+      for (let i = 0; i < total; i++) {
+        if (updated[i].frameImage && i > 0) {
+          previousSceneImage = updated[i].frameImage;
+          continue;
+        }
+        setStatus(
+          i === 0
+            ? `جاري رسم المشهد المرجعي 1/${total}...`
+            : `جاري رسم المشهد ${i + 1} من ${total}...${i === 0 ? ' (المشهد المرجعي الأساسي)' : ''}`
+        );
+        const refs = await getCharacterRefsForScene(updated[i].characterIds);
 
-      const pendingIndexes = Array.from({ length: total - 1 }, (_, i) => i + 1);
-      const workerCount = Math.min(concurrency, pendingIndexes.length);
-      await Promise.all(
-        Array.from({ length: workerCount }, async () => {
-          while (pendingIndexes.length) {
-            const i = pendingIndexes.shift();
-            if (i === undefined) return;
-            setStatus(`جاري توليد الصور دفعة واحدة... ${finished}/${total}`);
-            const refs = await getCharacterRefsForScene(updated[i].characterIds);
-            const img = await AIService.generateStoryboardFrame({
-              sceneDescription: buildScenePrompt({
-                scene: updated[i],
-                idx: i,
-                total,
-                storyScript: script,
-                previousSceneDescription: i > 0 ? updated[i - 1].description : undefined,
-              }),
-              characterImages: refs,
-              firstSceneImage: firstImage,
-              previousSceneImage: updated[i - 1]?.frameImage,
-              sceneIndex: i,
-              totalScenes: total,
-              style,
-              aspectRatio,
-              characterDNA,
-            });
-            updated[i].frameImage = img;
-            finished += 1;
+        const tryGenerate = () =>
+          AIService.generateStoryboardFrame({
+            sceneDescription: buildScenePrompt({
+              scene: updated[i],
+              idx: i,
+              total,
+              storyScript: script,
+              previousSceneDescription: i > 0 ? updated[i - 1]?.description : undefined,
+            }),
+            characterImages: refs,
+            firstSceneImage,
+            previousSceneImage: i > 0 ? updated[i - 1]?.frameImage : undefined,
+            sceneIndex: i,
+            totalScenes: total,
+            style,
+            aspectRatio,
+            characterDNA,
+          });
+
+        try {
+          const frameImage = await tryGenerate();
+          updated[i].frameImage = frameImage;
+          if (i === 0) firstSceneImage = frameImage;
+          previousSceneImage = frameImage;
+          setScenes([...updated]);
+        } catch (sceneError: any) {
+          console.error(`Scene ${i + 1} failed:`, sceneError);
+          setStatus(`فشل المشهد ${i + 1}، إعادة المحاولة بعد 10 ثوانٍ...`);
+          await new Promise((r) => setTimeout(r, 10000));
+          try {
+            const retryImage = await tryGenerate();
+            updated[i].frameImage = retryImage;
+            if (i === 0) firstSceneImage = retryImage;
+            previousSceneImage = retryImage;
+            setScenes([...updated]);
+          } catch {
+            updated[i].frameImage = undefined;
             setScenes([...updated]);
           }
-        })
-      );
+        }
+        if (i < total - 1) {
+          setStatus(`تم رسم المشهد ${i + 1}. انتظر قليلاً قبل المشهد التالي...`);
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
       setStatus('تم توليد الصور بنجاح.');
     } catch (e: any) {
       if (e instanceof MissingApiKeyError) setMissingKeyError(e);
@@ -406,31 +472,93 @@ ${continuityLine}`;
     }
   };
 
-  const generateVideosForScenes = async (source: Scene[], ratio: '16:9' | '9:16') => {
+  /** توليد الفيديوهات (مرجعي: إرسال كل المهام أولاً ثم الاستعلام الدوري حتى الانتهاء) */
+  const generateVideosForScenes = async (
+    source: Scene[],
+    ratio: '16:9' | '9:16',
+    storyboardId?: string
+  ) => {
     setIsGeneratingVideos(true);
     const statuses: Record<number, string> = {};
     setVideoStatuses(statuses);
+    const API_BASE = window.location.origin;
     try {
       const service = FalService;
       const model = getProviderSettings().videoModel;
+      const tasks: { idx: number; taskId: string }[] = [];
+
       for (let i = 0; i < source.length; i++) {
         if (!source[i].frameImage || source[i].videoClip) continue;
-        statuses[i] = 'جاري الإرسال...';
+        statuses[i] = 'جاري الرفع...';
         setVideoStatuses({ ...statuses });
         const prompt = `${source[i].description}. ${
-          source[i].dialogue ? `Dialogue: "${source[i].dialogue}"` : ''
-        } Keep character identity locked and cinematic continuity.`;
-        const task = await service.generateImageToVideo(source[i].frameImage!, prompt, model, ratio);
+          source[i].dialogue ? `Dialogue: "${source[i].dialogue}". الشخصية تتحدث بوضوح وتحريك الشفاه.` : ''
+        } انتقال سلس إلى المشهد التالي. Keep character identity locked and cinematic continuity.`;
+        const result = await service.generateImageToVideo(source[i].frameImage!, prompt, model, ratio);
+        tasks.push({ idx: i, taskId: result.taskId });
         statuses[i] = 'جاري التوليد...';
         setVideoStatuses({ ...statuses });
-        const startedAt = Date.now();
-        const url = await service.pollTaskStatus(task.taskId, () => {
-          statuses[i] = `جاري التوليد... ${Math.floor((Date.now() - startedAt) / 1000)}s`;
-          setVideoStatuses({ ...statuses });
-        });
-        source[i].videoClip = url;
-        statuses[i] = 'مكتمل';
-        setVideoStatuses({ ...statuses });
+      }
+
+      if (tasks.length > 0 && storyboardId) {
+        const sb = storyboards.find((s) => s.id === storyboardId) || studioStoryboard;
+        if (sb) {
+          await fetch(`${API_BASE}/api/storyboards/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: sb.id,
+              title: sb.title || '',
+              script: sb.script || '',
+              aspectRatio: sb.aspectRatio || '16:9',
+              scenes: sb.scenes.map((s: Scene) => ({
+                id: s.id,
+                description: s.description || '',
+                characterIds: s.characterIds || [],
+                dialogue: s.dialogue || '',
+                frameImage: s.frameImage || '',
+                videoUrl: s.videoClip || '',
+              })),
+              videoTasks: tasks.map((t) => ({ taskId: t.taskId, sceneIndex: t.idx })),
+            }),
+          });
+        }
+      }
+
+      const pending = new Set(tasks.map((t) => t.idx));
+      let pollCount = 0;
+      while (pending.size > 0 && pollCount < 120) {
+        await new Promise((r) => setTimeout(r, 5000));
+        pollCount++;
+        try {
+          const resp = await fetch(`${API_BASE}/api/fal/batch-task-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              task_ids: tasks.map((t) => t.taskId),
+              storyboard_id: storyboardId || undefined,
+            }),
+          });
+          const results = await resp.json();
+          for (const task of tasks) {
+            if (!pending.has(task.idx)) continue;
+            const r = results[task.taskId];
+            if (!r) continue;
+            if (r.status === 'completed' && r.videoUrl) {
+              source[task.idx].videoClip = r.videoUrl;
+              pending.delete(task.idx);
+              statuses[task.idx] = 'مكتمل';
+            } else if (r.status === 'failed') {
+              pending.delete(task.idx);
+              statuses[task.idx] = 'فشل التوليد';
+            } else {
+              statuses[task.idx] = `جاري التوليد... (${pollCount})`;
+            }
+            setVideoStatuses({ ...statuses });
+          }
+        } catch {
+          /* استمر بالاستعلام */
+        }
       }
       setStatus('تم توليد الفيديوهات.');
     } catch (e: any) {
@@ -455,6 +583,8 @@ ${continuityLine}`;
         createdAt: Date.now(),
       };
       await db.saveStoryboard(story);
+      sessionStorage.removeItem(STORAGE_DRAFT_KEY);
+      setHasDraft(false);
       await loadInitialData();
       setSelectedStoryboardId(story.id);
       setStudioStoryboard(story);
@@ -548,32 +678,56 @@ ${continuityLine}`;
           setStudioStoryboard({ ...next, scenes: [...next.scenes] });
         }
 
-        // Sequential generation: one request per scene to avoid duplicate API calls and race conditions
+        // Sequential: one request per scene, 3s delay between scenes, retry once on failure (مرجعي)
         for (const i of missingIndexes) {
           if (i === 0 && next.scenes[0]?.frameImage) continue;
           setStatus(`توليد المشاهد... ${finished + 1}/${total}`);
           const scene = next.scenes[i];
           const refs = await getCharacterRefsForSceneFromChars(scene.characterIds, liveChars);
-          const image = await AIService.generateStoryboardFrame({
-            sceneDescription: buildScenePrompt({
-              scene,
-              idx: i,
-              total,
-              storyScript: next.script || '',
-              previousSceneDescription: i > 0 ? next.scenes[i - 1]?.description : undefined,
-            }),
-            characterImages: refs,
-            firstSceneImage,
-            previousSceneImage: next.scenes[i - 1]?.frameImage,
-            sceneIndex: i,
-            totalScenes: total,
-            style: 'Cinematic',
-            aspectRatio: (next.aspectRatio || '16:9') as '16:9' | '9:16',
-            characterDNA,
-          });
-          next.scenes[i].frameImage = image;
-          finished += 1;
-          setStudioStoryboard({ ...next, scenes: [...next.scenes] });
+
+          const tryGen = () =>
+            AIService.generateStoryboardFrame({
+              sceneDescription: buildScenePrompt({
+                scene,
+                idx: i,
+                total,
+                storyScript: next.script || '',
+                previousSceneDescription: i > 0 ? next.scenes[i - 1]?.description : undefined,
+              }),
+              characterImages: refs,
+              firstSceneImage,
+              previousSceneImage: next.scenes[i - 1]?.frameImage,
+              sceneIndex: i,
+              totalScenes: total,
+              style: 'Cinematic',
+              aspectRatio: (next.aspectRatio || '16:9') as '16:9' | '9:16',
+              characterDNA,
+            });
+
+          try {
+            const image = await tryGen();
+            next.scenes[i].frameImage = image;
+            if (i === 0) firstSceneImage = image;
+            finished += 1;
+            setStudioStoryboard({ ...next, scenes: [...next.scenes] });
+          } catch (sceneErr: any) {
+            console.error(`Scene ${i + 1} failed:`, sceneErr);
+            setStatus(`فشل المشهد ${i + 1}، إعادة المحاولة بعد 10 ثوانٍ...`);
+            await new Promise((r) => setTimeout(r, 10000));
+            try {
+              const retryImage = await tryGen();
+              next.scenes[i].frameImage = retryImage;
+              if (i === 0) firstSceneImage = retryImage;
+              finished += 1;
+              setStudioStoryboard({ ...next, scenes: [...next.scenes] });
+            } catch {
+              setStudioStoryboard({ ...next, scenes: [...next.scenes] });
+            }
+          }
+          if (finished < total) {
+            setStatus('تم رسم المشهد. انتظر قليلاً قبل المشهد التالي...');
+            await new Promise((r) => setTimeout(r, 3000));
+          }
         }
       }
 
@@ -592,7 +746,11 @@ ${continuityLine}`;
   const generateStudioVideos = async () => {
     if (!studioStoryboard) return;
     const next = { ...studioStoryboard, scenes: [...studioStoryboard.scenes] };
-    await generateVideosForScenes(next.scenes, (studioStoryboard.aspectRatio || '16:9') as '16:9' | '9:16');
+    await generateVideosForScenes(
+      next.scenes,
+      (studioStoryboard.aspectRatio || '16:9') as '16:9' | '9:16',
+      studioStoryboard.id
+    );
     setStudioStoryboard(next);
     await db.saveStoryboard(next);
     await loadInitialData();
@@ -678,6 +836,19 @@ ${continuityLine}`;
 
       {activeTab === 'create' && (
         <section className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+          {hasDraft && (
+            <div className="xl:col-span-12 bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-center justify-between">
+              <span className="text-xs text-amber-800 font-medium">لديك مسودة قصة محفوظة</span>
+              <div className="flex gap-2">
+                <button onClick={resumeDraft} className="px-3 py-1.5 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600">
+                  استئناف
+                </button>
+                <button onClick={startNewDraft} className="px-3 py-1.5 bg-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-300">
+                  تجاهل
+                </button>
+              </div>
+            </div>
+          )}
           <div className="xl:col-span-4 bg-card border border-border/60 rounded-2xl p-4 space-y-3 h-fit">
             <h3 className="text-sm font-bold">Presets للقصص</h3>
             {STORY_PRESETS.map((p) => (

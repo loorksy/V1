@@ -1,5 +1,5 @@
 // Unified AI Service - Routes to Gemini, kie.ai, or fal.ai based on provider settings
-import { isKieProvider, isFalProvider, kieGenerateText, kieGenerateJSON, kieGenerateImage, falGenerateText, falGenerateJSON, falGenerateImage, falGenerateTextWithImage, requireApiKey } from './aiProvider';
+import { isKieProvider, isFalProvider, useGeminiForImages, kieGenerateText, kieGenerateJSON, kieGenerateImage, falGenerateText, falGenerateJSON, falGenerateImage, falGenerateTextWithImage, requireApiKey } from './aiProvider';
 import { GeminiService } from './gemini';
 
 const API = window.location.origin;
@@ -315,6 +315,7 @@ HARD CONSISTENCY RULES:
 
   async generateThumbnail(params: any): Promise<string> {
     requireApiKey();
+    if (useGeminiForImages()) return GeminiService.generateThumbnail(params);
     if (!isKieProvider() && !isFalProvider()) {
       return GeminiService.generateThumbnail(params);
     }
@@ -328,11 +329,18 @@ HARD CONSISTENCY RULES:
 
     const uploadRef = isFalProvider() ? uploadBase64ToFal : uploadBase64ToKie;
     const refUrls: string[] = [];
+    // وضع التحسين: الصورة الأساس كأول مرجع (صورة → صورة)
+    if (params.baseThumbnail && params.baseThumbnail.length > 200) {
+      try {
+        const baseUrl = await uploadRef(params.baseThumbnail);
+        if (baseUrl) refUrls.push(baseUrl);
+      } catch { /* skip */ }
+    }
     if (params.referenceImages?.length) {
       for (const img of params.referenceImages.slice(0, 2)) {
         try {
           const url = await uploadRef(img.dataUrl);
-          refUrls.push(url);
+          if (url) refUrls.push(url);
         } catch { /* skip */ }
       }
     }
@@ -344,6 +352,7 @@ HARD CONSISTENCY RULES:
 
   async analyzeThumbnail(imageBase64: string): Promise<any> {
     requireApiKey();
+    if (useGeminiForImages()) return GeminiService.analyzeThumbnail(imageBase64);
     if (!isKieProvider() && !isFalProvider()) {
       return GeminiService.analyzeThumbnail(imageBase64);
     }
@@ -575,8 +584,18 @@ ${params.visualStyle ? `الأسلوب: ${params.visualStyle}` : ''}
 
   async generateAdCampaign(params: any): Promise<any> {
     requireApiKey();
-    if (!isKieProvider() && !isFalProvider()) {
-      return GeminiService.generateAdCampaign(params);
+    if (useGeminiForImages()) {
+      const posterParams = {
+        topic: params.headline || params.topic || 'Ad Campaign',
+        brandName: params.brandName || params.brand || 'Brand',
+        primaryColor: params.primaryColor || '#2563eb',
+        secondaryColor: params.secondaryColor || '#1e40af',
+        visualStyle: params.style || 'modern',
+        largeText: params.headline,
+        ...params,
+      };
+      const b64 = await GeminiService.generateAdPoster(posterParams);
+      return [{ image: b64, headline: params.headline || 'Ad Campaign' }];
     }
     const prompt = `Create ad campaign images for: ${JSON.stringify(params)}. Professional advertising quality, eye-catching, modern design.`;
     const url = isFalProvider() ? await falGenerateImage(prompt, '1:1') : await kieGenerateImage(prompt, '1:1');
@@ -586,8 +605,9 @@ ${params.visualStyle ? `الأسلوب: ${params.visualStyle}` : ''}
 
   async generateAdPoster(params: any): Promise<any> {
     requireApiKey();
+    if (useGeminiForImages()) return { image: await GeminiService.generateAdPoster(params) };
     if (!isKieProvider() && !isFalProvider()) {
-      return GeminiService.generateAdPoster(params);
+      return GeminiService.generateAdPoster(params).then((image: string) => ({ image }));
     }
     const prompt = `Professional advertising poster. ${params.headline || ''}. Product: ${params.product || ''}. Style: ${params.style || 'modern'}. Cinematic 8k.`;
     const url = isFalProvider() ? await falGenerateImage(prompt, '1:1') : await kieGenerateImage(prompt, '1:1');
@@ -597,8 +617,17 @@ ${params.visualStyle ? `الأسلوب: ${params.visualStyle}` : ''}
 
   async generateProductShot(params: any): Promise<any> {
     requireApiKey();
+    if (useGeminiForImages()) {
+      const b64 = await GeminiService.generateProductShot({
+        product: params.productDescription || params.product || '',
+        background: params.setting || 'studio',
+        lighting: 'professional studio',
+        style: params.style || 'commercial',
+      });
+      return { image: b64 };
+    }
     if (!isKieProvider() && !isFalProvider()) {
-      return GeminiService.generateProductShot(params);
+      return GeminiService.generateProductShot(params).then((image: string) => ({ image }));
     }
     const prompt = `Professional product photography. Product: ${params.productDescription || ''}. Setting: ${params.setting || 'studio'}. Style: ${params.style || 'commercial'}. Lighting: professional studio. 8k.`;
     const url = isFalProvider() ? await falGenerateImage(prompt, '1:1') : await kieGenerateImage(prompt, '1:1');

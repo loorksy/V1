@@ -36,10 +36,19 @@ interface ThumbnailAnalysis {
   suggestedStyle: string;
 }
 
+const THUMBNAIL_DRAFT_KEY = 'thumbnail_draft';
+
+/** أول صورة متوفرة من شخصية (مرجعي: دعم كل أنواع الصور) */
+function getCharacterThumb(char: Character): string {
+  const imgs = char.images as Record<string, string | undefined>;
+  return imgs.front || imgs.reference || imgs.threeQuarter || imgs.closeup || imgs.left || imgs.right || imgs.normal || '';
+}
+
 export default function ThumbnailCreate() {
   const navigate = useNavigate();
   const [step, setStep] = useState<'input' | 'generating' | 'review'>('input');
   const [mode, setMode] = useState<'create' | 'enhance' | 'from_story'>('create');
+  const [hasDraft, setHasDraft] = useState(false);
   
   // Form State
   const [title, setTitle] = useState('');
@@ -94,7 +103,37 @@ export default function ThumbnailCreate() {
   useEffect(() => {
     loadCharacters();
     loadStoryboards();
+    try {
+      const raw = sessionStorage.getItem(THUMBNAIL_DRAFT_KEY);
+      setHasDraft(Boolean(raw && JSON.parse(raw)));
+    } catch {
+      setHasDraft(false);
+    }
   }, []);
+
+  useEffect(() => {
+    if (step !== 'input') return;
+    const payload = {
+      mode,
+      title,
+      elements,
+      style,
+      background,
+      imageText,
+      selectedCharIds,
+      aspectRatio,
+      selectedStoryId: mode === 'from_story' ? selectedStoryId : '',
+    };
+    sessionStorage.setItem(THUMBNAIL_DRAFT_KEY, JSON.stringify(payload));
+    setHasDraft(true);
+  }, [step, mode, title, elements, style, background, imageText, selectedCharIds, aspectRatio, selectedStoryId]);
+
+  // عند الاستئناف في وضع "من القصة": تحميل metadata إذا كانت القوائم جاهزة
+  useEffect(() => {
+    if (mode !== 'from_story' || !selectedStoryId || !storyboards.length || storyMetadata) return;
+    const story = storyboards.find((s) => s.id === selectedStoryId);
+    if (story) void selectStory(story.id);
+  }, [mode, selectedStoryId, storyboards, storyMetadata]);
 
   async function loadCharacters() {
     const chars = await db.getAllCharacters();
@@ -175,6 +214,45 @@ export default function ThumbnailCreate() {
     fileInputRef.current?.click();
   };
 
+  const resumeDraft = () => {
+    try {
+      const raw = sessionStorage.getItem(THUMBNAIL_DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft.mode) setMode(draft.mode);
+      if (draft.title != null) setTitle(draft.title);
+      if (draft.elements != null) setElements(draft.elements);
+      if (draft.style) setStyle(draft.style);
+      if (draft.background != null) setBackground(draft.background);
+      if (draft.imageText != null) setImageText(draft.imageText);
+      if (draft.selectedCharIds?.length) setSelectedCharIds(draft.selectedCharIds);
+      if (draft.aspectRatio) setAspectRatio(draft.aspectRatio);
+      if (draft.selectedStoryId && draft.mode === 'from_story') {
+        setSelectedStoryId(draft.selectedStoryId);
+        const story = storyboards.find((s) => s.id === draft.selectedStoryId);
+        if (story) selectStory(story.id);
+      }
+      setStep('input');
+      setHasDraft(true);
+    } catch {
+      setHasDraft(false);
+    }
+  };
+
+  const startNewDraft = () => {
+    sessionStorage.removeItem(THUMBNAIL_DRAFT_KEY);
+    setHasDraft(false);
+    setTitle('');
+    setElements('');
+    setImageText('');
+    setBackground('');
+    setSelectedCharIds([]);
+    setBaseThumbnail(null);
+    setThumbnailAnalysis(null);
+    setSelectedStoryId('');
+    setStoryMetadata(null);
+  };
+
   const handleBaseThumbUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -236,11 +314,12 @@ export default function ThumbnailCreate() {
       // Gather all reference images
       const referenceImages: { name: string; dataUrl: string }[] = [];
       
-      // 1. Add selected DB characters (convert URLs to base64)
+      // 1. Add selected DB characters (convert URLs to base64) — مرجعي: أي صورة متوفرة
       for (const id of selectedCharIds) {
         const char = characters.find(c => c.id === id);
-        if (char && char.images.front) {
-          const b64 = await toBase64(char.images.front);
+        const src = char ? getCharacterThumb(char) : '';
+        if (char && src) {
+          const b64 = await toBase64(src);
           if (b64) referenceImages.push({ name: char.name, dataUrl: b64 });
         }
       }
@@ -318,6 +397,8 @@ export default function ThumbnailCreate() {
       };
       await db.saveMediaItem(mediaItem);
       setThumbnailSaved(true);
+      sessionStorage.removeItem(THUMBNAIL_DRAFT_KEY);
+      setHasDraft(false);
     } catch (error: any) {
       if (error instanceof MissingApiKeyError) { setMissingKeyError(error); }
       else { console.error(error); alert(`فشل التوليد: ${error.message}`); }
@@ -404,12 +485,26 @@ export default function ThumbnailCreate() {
             </button>
           </div>
 
+          {hasDraft && (
+            <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-center justify-between">
+              <span className="text-xs text-amber-800 font-medium">لديك مسودة صورة مصغرة محفوظة</span>
+              <div className="flex gap-2">
+                <button type="button" onClick={resumeDraft} className="px-3 py-1.5 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600">
+                  استئناف
+                </button>
+                <button type="button" onClick={startNewDraft} className="px-3 py-1.5 bg-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-300">
+                  تجاهل
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="bg-red-50 border border-red-100 p-4 rounded-xl text-sm text-red-800 leading-relaxed">
-            {mode === 'create' 
-              ? "صمم صورة مصغرة جذابة (Clickbait) لفيديو اليوتيوب الخاص بك."
+            {mode === 'create'
+              ? 'صمم صورة مصغرة جذابة (Clickbait) لفيديو اليوتيوب الخاص بك.'
               : mode === 'from_story'
-              ? "اختر قصة وسيقوم الذكاء الاصطناعي بتحليلها وإنشاء صورة مصغرة + عنوان + وصف + هاشتاقات تلقائياً."
-              : "ارفع صورة مصغرة جاهزة وسيقوم الذكاء الاصطناعي بتحسينها."}
+                ? 'اختر قصة وسيقوم الذكاء الاصطناعي بتحليلها وإنشاء صورة مصغرة + عنوان + وصف + هاشتاقات تلقائياً.'
+                : 'ارفع صورة مصغرة جاهزة وسيقوم الذكاء الاصطناعي بتحسينها.'}
           </div>
 
           <div className="space-y-6">
@@ -645,7 +740,7 @@ export default function ThumbnailCreate() {
                             : "border-slate-200 hover:border-indigo-300 hover:shadow-sm opacity-80 hover:opacity-100"
                         )}
                       >
-                        <img src={char.images.front} alt={char.name} className="w-full h-full object-cover" />
+                        <img src={getCharacterThumb(char)} alt={char.name} className="w-full h-full object-cover" />
                         {isSelected && (
                           <>
                             <div className="absolute inset-0 bg-indigo-500/10 transition-colors"></div>
